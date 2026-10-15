@@ -6,8 +6,8 @@ Codexの動的マルチエージェント運用方針をWindows PC間で共有�
 
 - GitとCodexが導入済みのWindows。Windows PowerShell 5.1 / PowerShell 7から実行できます。
 - 以下は**PowerShell用**です。各ブロックはどのカレントディレクトリからでも実行できます。プロンプトの`PS C:\...>`は貼り付けません。
-- リポジトリは`$HOME\Codex_MultiAgent`に保存します。別の場所なら各ブロックの`$repo`を変更してください。
-- 配布先は通常`$HOME\.codex\AGENTS.md`です。`CODEX_HOME`指定時はその直下です。相対パスやリンク先への配布は誤配置防止のため停止します。環境変数の設定は自動変更しません。
+- 以下の例は`$HOME\Codex_MultiAgent`を使用します。このPCの作業コピーは`C:\temp\GitHub\Codex_MultiAgent`です。この作業コピーを使う場合は、各ブロックの先頭を`$repo = 'C:\temp\GitHub\Codex_MultiAgent'`に変更してください。
+- 配布先は通常`$HOME\.codex\AGENTS.md`です。`CODEX_HOME`指定時はその直下です。相対パスやリンク先（ハードリンクを含む）への配布は誤配置防止のため停止します。環境変数の設定は自動変更しません。
 - スクリプトを実行前に確認してください。管理者権限は通常不要です。
 
 ## 1. 初回取得・導入
@@ -31,23 +31,29 @@ if ($LASTEXITCODE -ne 0) { throw '配置検証失敗。' }
 
 ## 2. 取得済みPCの更新
 
-作業ツリーに変更（未追跡ファイルを含む）があるときは停止します。自動stash・resetはしません。リモートURLとブランチを確認し、`main`を早送り更新します。取得失敗時は古い配布元をインストールしません。
+作業ツリーに変更（未追跡ファイルを含む）があるときは停止します。自動stash・resetはしません。リモートURLとブランチを確認し、`main`を早送り更新します。取得失敗時は古い配布元をインストールしません。`--ff-only`だけでは拒否されないローカル先行コミットも、取得したコミットとの一致確認で停止します。
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repo = Join-Path $HOME 'Codex_MultiAgent'
 Set-Location -LiteralPath $repo
-$root = git rev-parse --show-toplevel
-if ($LASTEXITCODE -ne 0) { throw 'Gitリポジトリではありません。' }
-if ([IO.Path]::GetFullPath($root) -ne [IO.Path]::GetFullPath($repo)) { throw 'リポジトリの位置が違います。' }
+$inside = git rev-parse --is-inside-work-tree
+if ($LASTEXITCODE -ne 0 -or $inside -ne 'true') { throw 'Git作業ツリーではありません。' }
+$prefix = git rev-parse --show-prefix
+if ($LASTEXITCODE -ne 0 -or $prefix) { throw 'リポジトリ直下で実行してください。' }
 $origin = git remote get-url origin
 if ($LASTEXITCODE -ne 0 -or $origin -notin @('https://github.com/takahiyo/Codex_MultiAgent.git', 'https://github.com/takahiyo/Codex_MultiAgent', 'git@github.com:takahiyo/Codex_MultiAgent.git')) { throw 'originが想定と違います。' }
 $branch = git branch --show-current
 if ($LASTEXITCODE -ne 0 -or $branch -ne 'main') { throw 'mainブランチで実行してください。' }
-$changes = git status --porcelain
+$changes = git status --porcelain --untracked-files=all
 if ($LASTEXITCODE -ne 0 -or $changes) { throw 'ローカル変更を確認してから更新してください。' }
 git pull --ff-only origin main
 if ($LASTEXITCODE -ne 0) { throw '更新失敗。導入は実行しません。' }
+$localHead = git rev-parse HEAD
+if ($LASTEXITCODE -ne 0) { throw 'ローカルコミット確認失敗。' }
+$fetchedHead = git rev-parse FETCH_HEAD
+if ($LASTEXITCODE -ne 0) { throw '取得コミット確認失敗。' }
+if ($localHead -ne $fetchedHead) { throw 'ローカルmainが取得元と異なります。導入せず、ローカルコミットを確認してください。' }
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repo\scripts\install.ps1"
 if ($LASTEXITCODE -eq 2) { throw '既存AGENTS.mdとの差分を確認してください（後述）。' }
 if ($LASTEXITCODE -ne 0) { throw '導入失敗。' }
@@ -81,7 +87,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repo\scripts\verify.ps
 if ($LASTEXITCODE -ne 0) { throw '配置検証失敗。' }
 ```
 
-差分がある既存ファイルは`<配布先>\backups\multiagent-日時-識別子\AGENTS.md`へコピーし、SHA256一致を確認してから置換します。バックアップに失敗した場合は置換しません。配置時は同じディレクトリに一時ファイルを作成し、ハッシュ確認後に置換します。既存ファイルのハードリンク先も上書きしません。同一内容なら`-Force`でも変更・追加バックアップはしません。表示された`Backup:`の場所を保存してください。復元は、そのバックアップの`AGENTS.md`を表示された配布先へ戻します（復元後、共通版との不一致は正常です）。
+差分がある既存ファイルは`<配布先>\backups\multiagent-日時-識別子\AGENTS.md`へコピーし、SHA256一致を確認してから置換します。バックアップに失敗した場合は置換しません。配置時は同じディレクトリに一時ファイルを作成し、ハッシュ確認後に置換します。ハードリンクされた配布元・配布先AGENTS.mdは、内容をハッシュ・バックアップする前にメタデータで検出して拒否します。認証ファイルがAGENTS.mdの別名としてバックアップされる事態も防ぎます。同一内容なら`-Force`でも変更・追加バックアップはしません。表示された`Backup:`の場所を保存してください。復元は、そのバックアップの`AGENTS.md`を表示された配布先へ戻します（復元後、共通版との不一致は正常です）。
 
 プレビューは、上の置換ブロックのインストール行に`-WhatIf`を追加して実行できます。ファイルやバックアップは作成しません。プレビュー後に検証しても未導入・旧版なら失敗します。
 
@@ -106,7 +112,7 @@ if ($LASTEXITCODE -ne 0) { throw '配置検証失敗。' }
 
 | 対象 | 扱い |
 |---|---|
-| `policy/AGENTS.md` | 共通方針。内容は今回変更しない |
+| `policy/AGENTS.md` | 各PCへ配布する共通の運用方針 |
 | `scripts/common.ps1` | 配布先とパスの検証 |
 | `scripts/install.ps1` | 配置・差分保護・バックアップ。0=成功/同一/WhatIf、2=既存差分、1=エラー |
 | `scripts/verify.ps1` | 配置ハッシュ確認。0=一致、1=不一致/未導入/エラー |
@@ -128,4 +134,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repo\tests\smoke.ps1"
 if ($LASTEXITCODE -ne 0) { throw '回帰検証失敗。' }
 ```
 
-2026-10-15にWindows PowerShell 5.1で回帰検証済みです。日本語・空白パス、カレントディレクトリ違い、初回・同一内容・差分停止、WhatIf、空/非空バックアップ、バックアップ失敗時の保持、設定・認証のテストファイル保持、ハードリンク先保持、ジャンクション拒否、BOM・構文を確認しました。PowerShell 7での実行と、この変更後のCodex内委任テストは未実施です。
+2026-10-15にWindows PowerShell 5.1で回帰検証済みです。日本語・空白パス、カレントディレクトリ違い、初回・同一内容・差分停止、WhatIf、空/非空バックアップ、バックアップ失敗時の保持、設定・認証のテストファイル保持、配布元/配布先のハードリンク拒否、ジャンクション拒否、BOM・構文を確認しました。今回、PowerShell 7.6.5でも同じ回帰検証を実行済みです。設定・認証は架空のテストファイルのみを使用し、実物は読取り・変更していません。
+
+## 設計の再レビュー
+
+[マルチエージェントによる設計レビュー記録](docs/design-review.md)に、確認範囲・改善点・検証結果・実適用値の確認限界を記載しています。導入されるのは運用方針であり、委任ツール自体の追加や機能の有効化ではありません。
+
+回帰テストは呼び出したPowerShellエンジンを子プロセスにも使います。PowerShell 7から直接検証する場合は、リポジトリへ移動した上で`pwsh -NoProfile -ExecutionPolicy Bypass -File "$repo\tests\smoke.ps1"`を実行してください。GitHub ActionsでもWindows PowerShell 5.1とPowerShell 7の両方で自動検証します。

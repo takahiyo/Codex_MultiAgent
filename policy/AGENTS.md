@@ -6,11 +6,12 @@
 - For separable investigation, implementation, independent verification, or Git review, delegate only when the benefit exceeds overhead.
 - Do not bind model selection rigidly to role labels. Inspect the models and reasoning efforts actually offered by the current delegation tool.
 - At spawn time choose an available model and reasoning effort appropriate to task complexity and consequences. Prefer sufficient capability at reasonable cost; avoid escalating effort reflexively.
+- Follow the delegation tool's supported settings and context-inheritance rules. If model/effort selection is unavailable, inherit the available defaults; if delegation is unavailable, continue directly where feasible and report the limitation.
 - If the first attempt fails, diagnose whether the cause is task specification, environment, permissions, or model capability before retrying.
 - Distinguish requested model/effort from observed runtime metadata. Do not claim actual selection was confirmed unless evidence is available.
 
 ## Collaboration
-- Supply bounded goals, acceptance criteria, and required context to each subagent.
+- Supply bounded goals, acceptance criteria, required context, file ownership, and allowed operations to each subagent. Delegation does not expand permissions or user authorization.
 - Use fresh context for independent verification when substantive code is changed.
 - Coordinate file ownership. Avoid simultaneous edits to the same file and conflicting writes.
 - Integrate results and inspect relevant code or test evidence instead of accepting subagent conclusions unquestioned.
@@ -19,7 +20,7 @@
 ## Safety and Git
 - Respect local project instructions and existing settings.
 - Git read operations (status, diff, log) may be used when appropriate.
-- Do not commit, push, force-push, reset, rewrite history, delete branches, or otherwise perform Git writes without explicit user authorization.
+- Do not commit, push, force-push, reset, rewrite history, delete branches, or otherwise perform Git writes without explicit user authorization. Carry existing authorization within its scope; do not ask again solely because work was delegated.
 - Do not expose tokens, authentication files, private keys, credentials, or user data in logs, code, or Git repositories.
 - Require explicit authorization for destructive actions, production side effects, and external publication.
 - Treat AGENTS.md as decision guidance, not as proof that the requested model was actually executed.

@@ -1,6 +1,47 @@
 ﻿[CmdletBinding()]
 param()
 
+function Assert-PolicyFile([string]$LiteralPath) {
+    if (-not (Test-Path -LiteralPath $LiteralPath -PathType Leaf)) { return }
+    if ((Get-Item -LiteralPath $LiteralPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Refusing a linked policy file: $LiteralPath"
+    }
+    if (-not ('CodexMultiAgent.FileMetadata' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using FILETIME = System.Runtime.InteropServices.ComTypes.FILETIME;
+using Microsoft.Win32.SafeHandles;
+namespace CodexMultiAgent {
+    public static class FileMetadata {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FileInformation {
+            public uint Attributes;
+            public FILETIME CreationTime, LastAccessTime, LastWriteTime;
+            public uint VolumeSerialNumber, SizeHigh, SizeLow, NumberOfLinks, IndexHigh, IndexLow;
+        }
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out FileInformation info);
+        public static uint LinkCount(string path) {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
+                FileInformation info;
+                if (!GetFileInformationByHandle(stream.SafeFileHandle, out info))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                return info.NumberOfLinks;
+            }
+        }
+    }
+}
+"@
+    }
+    # Query metadata before hashing or backing up: a hard link can alias auth/config.
+    if ([CodexMultiAgent.FileMetadata]::LinkCount($LiteralPath) -ne 1) {
+        throw "Refusing a hard-linked policy file: $LiteralPath"
+    }
+}
+
 function Get-PolicyPaths {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     $codexDirectory = if ([string]::IsNullOrWhiteSpace($env:CODEX_HOME)) {
@@ -33,8 +74,11 @@ function Get-PolicyPaths {
     if ((Test-Path -LiteralPath $target) -and -not (Test-Path -LiteralPath $target -PathType Leaf)) {
         throw "AGENTS.md is not a file: $target"
     }
+    $source = Join-Path $repoRoot 'policy\AGENTS.md'
+    Assert-PolicyFile $source
+    Assert-PolicyFile $target
     [pscustomobject]@{
-        Source = Join-Path $repoRoot 'policy\AGENTS.md'
+        Source = $source
         Home = $codexDirectory
         Target = $target
     }
