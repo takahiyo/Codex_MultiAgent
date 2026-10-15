@@ -1,0 +1,14 @@
+# Never commit credentials, machine-local settings, or Codex sessions.
+.codex/
+auth.json
+config.toml
+*.key
+*.pem
+*.pfx
+.env
+.env.*
+!.env.example
+backups/
+logs/
+outputs/
+work/
